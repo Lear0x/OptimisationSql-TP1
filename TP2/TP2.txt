@@ -1,0 +1,130 @@
+OPTIMISATION DE REQUÊTES POSTGRESQL AVEC EXPLAIN ANALYZE
+
+===============================
+1. FILTRES SIMPLES SUR start_year
+===============================
+
+1.1 Requête initiale sans index :
+SELECT * FROM title_basics WHERE start_year = 2020;
+- Plan : Parallel Sequential Scan
+- Temps d'exécution : ~1910 ms
+- Lignes retenues : 440 009
+- Lignes filtrées (Rows Removed by Filter) : 3 764 950
+
+1.2 Analyse :
+- PostgreSQL utilise le parallélisme pour traiter rapidement de gros volumes.
+- L’usage du filtre seul ne suffit pas pour de bonnes performances.
+
+1.3 Création d’un index :
+CREATE INDEX idx_start_year ON title_basics(start_year);
+- Plan : Bitmap Index Scan + Parallel Bitmap Heap Scan
+- Temps d'exécution : ~484 ms
+- Gain : exécution 4 fois plus rapide
+
+1.5 Sélection partielle de colonnes :
+SELECT tconst, primary_title, start_year FROM title_basics WHERE start_year = 2020;
+- Temps d'exécution : ~4543 ms
+- Effet de cache + dispersion mémoire → temps plus élevé malgré moins de colonnes
+
+1.6 Bilan :
+- Nouvelle stratégie : Bitmap Index Scan + Heap Scan
+- Gain global : 1910 ms → 484 ms
+- Limite : nombre de lignes élevé et données dispersées
+
+===============================
+2. FILTRES MULTIPLES : start_year + title_type
+===============================
+
+2.1 Requête sans index composite :
+SELECT * FROM title_basics WHERE title_type = 'movie' AND start_year = 1950;
+- Utilisation d’un seul index
+- Lignes restantes : 2009
+- Lignes écartées manuellement : 6268
+
+2.3 Création d’un index composite :
+CREATE INDEX idx_type_year ON title_basics(title_type, start_year);
+
+2.4 Amélioration constatée :
+- Temps d'exécution : 1.4 ms
+- Plus aucun filtrage manuel
+- Lecture réduite à 933 blocs
+
+2.5 Sélection de colonnes supplémentaires :
+SELECT tconst, primary_title, start_year, title_type FROM title_basics WHERE title_type = 'movie' AND start_year = 1950;
+- Temps : ~2.0 ms
+- L’index reste très efficace
+- Un index couvrant les colonnes sélectionnées permettrait un Index Only Scan
+
+2.6 Bilan :
+- Gain de 782 ms → 2 ms (amélioration x390)
+- Réduction du volume de lecture grâce à l’index composite
+
+===============================
+3. JOINTURE AVEC title_ratings
+===============================
+
+3.1 Requête :
+SELECT b.primary_title, r.average_rating FROM title_basics b JOIN title_ratings r ON b.tconst = r.tconst WHERE b.title_type = 'movie' AND b.start_year = 1994 AND r.average_rating > 8.5;
+- Jointure via Nested Loop
+- Parallélisme sur title_basics (4252 lignes)
+- average_rating filtré après la jointure
+
+3.3 Création index sur average_rating :
+CREATE INDEX idx_ratings_rating ON title_ratings(average_rating);
+
+3.4 Réexécution :
+- Temps réduit : 366 ms → 30 ms
+- Plan identique
+- Gain par optimisation et cache
+
+3.5 Bilan :
+- Nested Loop conservé
+- Parallélisme partiel maintenu
+- Filtrage toujours post-jointure
+
+===============================
+4. AGRÉGATION : GROUP BY + AVG
+===============================
+
+4.1 Requête :
+SELECT b.start_year, COUNT(*) AS nb_films, AVG(r.average_rating) AS note_moyenne FROM title_basics b JOIN title_ratings r ON b.tconst = r.tconst WHERE b.title_type = 'movie' AND b.start_year BETWEEN 1990 AND 2000 GROUP BY b.start_year ORDER BY note_moyenne DESC;
+
+4.2 Analyse :
+- Scan parallèle + Hash Join
+- Agrégation en 2 étapes : Partial + Finalize
+- Tri rapide car peu de lignes
+
+4.3 Index sur tconst :
+CREATE INDEX idx_title_basics_tconst ON title_basics(tconst);
+CREATE INDEX idx_title_ratings_tconst ON title_ratings(tconst);
+
+4.5 Résultat :
+- Les index sont utilisés pour la jointure
+- Plan globalement inchangé
+- Les gains sont plus visibles sur des jointures volumineuses
+
+===============================
+5. REQUÊTE CIBLÉE PAR CLÉ PRIMAIRE
+===============================
+
+5.1 Requête :
+SELECT b.primary_title, r.average_rating FROM title_basics b JOIN title_ratings r ON b.tconst = r.tconst WHERE b.tconst = 'tt0111161';
+
+5.2 Analyse :
+- Nested Loop + Index Scan sur clé primaire
+- Temps d'exécution : ~1.2 ms
+- Accès direct ultra rapide via les index
+
+===============================
+CONCLUSION GÉNÉRALE
+===============================
+
+- Les index simples sont utiles, mais limités aux cas unidimensionnels.
+- Les index composites sont très puissants si alignés avec les filtres.
+- L’analyse EXPLAIN ANALYZE aide à comprendre où PostgreSQL passe du temps.
+- L’optimisation repose sur :
+  - Choix des bons index
+  - Réduction des blocs à lire
+  - Bonne stratégie de jointure
+  - Usage judicieux du parallélisme
+
