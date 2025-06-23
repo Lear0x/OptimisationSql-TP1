@@ -1,0 +1,62 @@
+CREATE TABLE title_basics (
+	tconst VARCHAR(12) PRIMARY KEY,
+	title_type VARCHAR(20),
+	primary_title VARCHAR(500),
+	original_title VARCHAR(500),
+	is_adult BOOLEAN,
+	start_year INTEGER,
+	end_year INTEGER,
+	runtime_minutes INTEGER,
+	genres VARCHAR(100)
+);
+
+
+CREATE TABLE title_akas (
+    title_id VARCHAR(12),
+    ordering INTEGER,
+    title TEXT,
+    region VARCHAR(10),
+    language VARCHAR(20),
+    types TEXT,        
+    attributes TEXT,   
+    is_original_title BOOLEAN,
+    PRIMARY KEY (title_id, ordering)
+);
+
+CREATE TABLE title_crew (
+    tconst VARCHAR(12) PRIMARY KEY,
+    directors TEXT,     
+    writers TEXT 
+);
+
+CREATE TABLE title_episode (
+    tconst VARCHAR(12) PRIMARY KEY,
+    parent_tconst VARCHAR(12),
+    season_number INTEGER,
+    episode_number INTEGER
+);
+
+CREATE TABLE title_principals (
+    tconst VARCHAR(12),
+    ordering INTEGER,
+    nconst VARCHAR(12),
+    category VARCHAR(50),
+    job TEXT,
+    characters TEXT,
+    PRIMARY KEY (tconst, ordering)
+);
+
+CREATE TABLE title_ratings (
+    tconst VARCHAR(12) PRIMARY KEY,
+    average_rating NUMERIC(3,1),
+    num_votes INTEGER
+);
+
+CREATE TABLE name_basics (
+    nconst VARCHAR(12) PRIMARY KEY,
+    primary_name TEXT,
+    birth_year INTEGER,
+    death_year INTEGER,
+    primary_profession TEXT,     
+    known_for_titles TEXT        
+);
