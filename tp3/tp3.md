@@ -654,6 +654,282 @@ WHERE data ? 'actors';
 
 
 
+*******************************************************************
+Exercice 9.1 – Étude de l’utilisation des index PostgreSQL
+----------------------------------------------------------
+
+1. Les index fréquemment utilisés
+---------------------------------
+Requête :
+SELECT
+  schemaname,
+  relname AS table_name,
+  indexrelname AS index_name,
+  idx_scan
+FROM pg_stat_user_indexes
+ORDER BY idx_scan DESC
+LIMIT 10;
+
+Résultat :
+"public"    "title_basics"       "title_basics_pkey"     25
+"public"    "title_basics"       "idx_title_btree"       5
+"public"    "title_ratings"      "title_ratings_pkey"    4
+"public"    "title_episode"      "title_episode_pkey"    0
+"public"    "title_principals"   "title_principals_pkey" 0
+"public"    "name_basics"        "name_basics_pkey"      0
+"public"    "title_basics"       "idx_tconst_hash"       0
+"public"    "title_basics"       "idx_tconst_btree"      0
+"public"    "films_json"         "films_json_pkey"       0
+"public"    "films_json"         "idx_films_data_gin"    0
+
+
+2. Les index rarement (ou jamais) utilisés
+------------------------------------------
+Requête :
+SELECT
+  schemaname,
+  relname AS table_name,
+  indexrelname AS index_name,
+  idx_scan
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0;
+
+Résultat :
+"public"    "title_akas"         "title_akas_pkey"        0
+"public"    "title_crew"         "title_crew_pkey"        0
+"public"    "title_episode"      "title_episode_pkey"     0
+"public"    "title_principals"   "title_principals_pkey"  0
+"public"    "name_basics"        "name_basics_pkey"       0
+"public"    "title_basics"       "idx_tconst_hash"        0
+"public"    "title_basics"       "idx_tconst_btree"       0
+"public"    "films_json"         "films_json_pkey"        0
+"public"    "films_json"         "idx_films_data_gin"     0
+
+
+3. Les index qui occupent beaucoup d’espace
+-------------------------------------------
+Requête :
+SELECT
+  schemaname,
+  relname AS table_name,
+  indexrelname AS index_name,
+  pg_size_pretty(pg_relation_size(indexrelid)) AS index_size
+FROM pg_stat_user_indexes
+ORDER BY pg_relation_size(indexrelid) DESC
+LIMIT 10;
+
+Résultat :
+"public"    "title_principals"   "title_principals_pkey"  "2807 MB"
+"public"    "title_akas"         "title_akas_pkey"        "1579 MB"
+"public"    "name_basics"        "name_basics_pkey"       "1078 MB"
+"public"    "title_basics"       "idx_tconst_btree"       "353 MB"
+"public"    "title_basics"       "title_basics_pkey"      "353 MB"
+"public"    "title_crew"         "title_crew_pkey"        "353 MB"
+"public"    "title_basics"       "idx_tconst_hash"        "321 MB"
+"public"    "title_basics"       "idx_title_btree"        "288 MB"
+"public"    "title_episode"      "title_episode_pkey"     "272 MB"
+"public"    "title_ratings"      "title_ratings_pkey"     "48 MB"
+
+
+
+
+
+
+************************************************************************************************************
+Exercice 9.2 – Observation de la fragmentation d’un index PostgreSQL
+--------------------------------------------------------------------
+
+Index analysé : title_basics_pkey
+
+1. Taille avant mise à jour :
+-----------------------------
+Requête :
+SELECT pg_size_pretty(pg_relation_size('title_basics_pkey'));
+
+Résultat :
+353 MB
+
+2. Opération effectuée :
+------------------------
+Requête :
+UPDATE title_basics
+SET primary_title = primary_title || '_mod'
+WHERE start_year = 2020;
+
+Résultat :
+440 009 lignes mises à jour
+Durée : environ 48 secondes
+
+3. Taille après mise à jour :
+-----------------------------
+Requête :
+SELECT pg_size_pretty(pg_relation_size('title_basics_pkey'));
+
+Résultat :
+373 MB
+
+Variation observée :
++20 MB (environ +5,7 %)
+
+Conclusion :
+------------
+L’augmentation de la taille de l’index montre une fragmentation due aux nombreuses mises à jour.
+PostgreSQL ne compresse ni ne réorganise automatiquement les blocs utilisés par un index.
+
+Pour réduire cette fragmentation, deux solutions :
+- REINDEX INDEX title_basics_pkey;
+- VACUUM FULL title_basics;
+
+Ces commandes permettent de reconstruire l’index ou de compacter physiquement les données.
+
+
+
+
+*************************************************************************************************
+
+Exercice 9.3 – Maintenance des index PostgreSQL
+-----------------------------------------------
+
+1. VACUUM sur une table
+-----------------------
+Requête :
+VACUUM VERBOSE title_basics;
+
+Résultat :
+- Tuples supprimés : 460 007
+- Tuples restants : 11 715 246
+- Pages scannées : 163 974 (90.60%)
+- Index nettoyés : title_basics_pkey, idx_title_btree, idx_tconst_btree, etc.
+- Exemple : 63 pages supprimées dans title_basics_pkey
+- Durée : 11,5 secondes
+
+Conclusion :
+Le VACUUM a supprimé les tuples morts et marqué les pages obsolètes pour libérer de l’espace.
+
+
+2. REINDEX sur un index fragmenté
+---------------------------------
+Requête :
+REINDEX INDEX title_basics_pkey;
+
+Résultat :
+- Index entièrement reconstruit
+- Durée : 24 secondes
+
+Conclusion :
+Le REINDEX a supprimé toute fragmentation interne et a restauré une structure optimisée.
+
+
+3. ANALYZE pour mettre à jour les statistiques
+----------------------------------------------
+Requête :
+ANALYZE VERBOSE title_basics;
+
+Résultat :
+- 30 000 pages scannées sur 180 981
+- 1 946 329 lignes vivantes scannées
+- Estimation : 11 741 619 lignes totales
+- 0 lignes mortes
+- Durée : 0,5 seconde
+
+Conclusion :
+Le planificateur de requêtes a maintenant des statistiques précises sur la table,
+ce qui améliore l'efficacité des futures requêtes SQL.
+
+Exercice 9.4 – Mesure de l’impact des opérations de maintenance
+---------------------------------------------------------------
+
+Objectif :
+Comparer les performances d’une requête SQL avant et après maintenance
+(VACUUM, REINDEX, ANALYZE)
+
+---------------------------------------------------------------
+Requête utilisée :
+SELECT * FROM title_basics WHERE start_year = 2020;
+
+---------------------------------------------------------------
+Résultat AVANT maintenance :
+Execution Time: 1821.556 ms
+Type d’accès : Parallel Seq Scan
+Lignes retournées : 440 009
+
+---------------------------------------------------------------
+Résultat APRÈS maintenance :
+Execution Time: 836.929 ms
+Type d’accès : Parallel Seq Scan
+Lignes retournées : 440 009
+
+Plan d'exécution extrait :
+"Gather  (cost=1000.00..286383.57 rows=432483 width=86) (actual time=12.001..821.140 rows=440009 loops=1)"
+"  Workers Planned: 2"
+"  Workers Launched: 2"
+"  ->  Parallel Seq Scan on title_basics  (cost=0.00..242135.27 rows=180201 width=86) (actual time=10.102..696.597 rows=146670 loops=3)"
+"        Filter: (start_year = 2020)"
+"        Rows Removed by Filter: 3764950"
+"Execution Time: 836.929 ms"
+
+---------------------------------------------------------------
+Conclusion :
+
+Les opérations de maintenance (VACUUM + REINDEX + ANALYZE) ont permis
+une réduction significative du temps d’exécution :
+
+- Avant : 1821 ms
+- Après : 837 ms
+- Gain : environ -54 %
+
+Cette amélioration est due à :
+- L’élimination de la fragmentation de l’index,
+- La mise à jour des statistiques du planificateur,
+- L’optimisation des accès aux données.
+
+Cela montre l’importance d’une maintenance régulière des index
+dans des bases de données volumineuses.
+
+
+
+
+
+Exercice 9.5 – Analyse et réflexion
+-----------------------------------
+
+1. Comment déterminer si un index est utile ou superflu ?
+----------------------------------------------------------
+Un index est utile si :
+- Il est **fréquemment utilisé** (colonne `idx_scan` > 0 dans `pg_stat_user_indexes`)
+- Il améliore le **temps d'exécution** des requêtes (observé avec `EXPLAIN ANALYZE`)
+- Il sert une contrainte (PRIMARY KEY, UNIQUE, FOREIGN KEY)
+- Il couvre une colonne souvent utilisée dans les **filtres**, **jointures** ou **ordres**
+
+Un index est potentiellement superflu si :
+- `idx_scan = 0` depuis longtemps
+- Il duplique un autre index (même colonne, même type)
+- La table est rarement interrogée
+- Il prend beaucoup d’espace sans bénéfice constaté
+
+
+2. Quels signes indiquent qu'un index nécessite une maintenance ?
+------------------------------------------------------------------
+- Augmentation **anormale de sa taille** (`pg_relation_size`)
+- Présence de **pages supprimées mais non réutilisées** (via `VACUUM VERBOSE`)
+- Baisse des performances de requêtes utilisant l’index
+- `EXPLAIN ANALYZE` montre un contournement de l’index
+- L’index a été impacté par de **nombreuses mises à jour ou suppressions**
+
+Dans ces cas, un `REINDEX` ou un `VACUUM` peut restaurer l’efficacité.
+
+
+3. Quelle est la stratégie optimale pour planifier la maintenance des index ?
+-----------------------------------------------------------------------------
+Stratégie recommandée :
+- **VACUUM** régulier (automatique ou planifié quotidiennement)
+- **ANALYZE** pour mettre à jour les statistiques (après chargements/mises à jour massives)
+- **REINDEX** ponctuel sur les index très volumineux ou fragmentés (1 fois/mois ou selon usage)
+- Utilisation des vues système (`pg_stat_user_indexes`, `pg_class`) pour identifier :
+  - Les index peu utilisés
+  - Ceux occupant beaucoup d’espace
+
+
 
 
 
