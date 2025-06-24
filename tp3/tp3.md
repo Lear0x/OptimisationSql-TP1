@@ -576,7 +576,84 @@ D. Un index GIN sur un champ tsvector (full-text search)
 Bonne réponse : D. Un index GIN sur un champ tsvector (full-text search)
 
 
-8.1
+1.1
+******************************************************************************************************************
+
+CREATE TABLE films_json (
+    id SERIAL PRIMARY KEY,
+    data JSONB
+);
+
+
+-----------------------------------------------------------------------------------------------------------------
+
+
+INSERT INTO films_json (data) VALUES (
+    '{
+        "tconst": "tt0133093",
+        "title": "The Matrix",
+        "year": 1999,
+        "genres": ["Action", "Sci-Fi"],
+        "runtimeMinutes": 136,
+        "directors": ["Lana Wachowski", "Lilly Wachowski"],
+        "actors": [
+            {"name": "Keanu Reeves", "role": "Neo"},
+            {"name": "Laurence Fishburne", "role": "Morpheus"},
+            {"name": "Carrie-Anne Moss", "role": "Trinity"}
+        ],
+        "rating": {
+            "average": 8.7,
+            "votes": 1700000
+        }
+    }'
+);
+
+
+8.2
+******************************************************************************************************************
+query: SELECT * 
+FROM films_json 
+WHERE data ->> 'title' = 'The Matrix';
+
+------------------------------------------------------------------------------------------------------------------
+
+query: 
+SELECT * 
+FROM films_json 
+WHERE (data -> 'rating' ->> 'average')::numeric > 8.5;
+
+
+------------------------------------------------------------------------------------------------------------------
+SELECT * 
+FROM films_json 
+WHERE data ? 'actors';
+
+
+8.3
+******************************************************************************************************************
+1. CREATE INDEX idx_films_data_gin ON films_json USING GIN (data);
+   OPT: SELECT * FROM films_json WHERE data @> '{"title": "The Matrix"}';
+
+
+2. CREATE INDEX idx_films_data_gin_path ON films_json USING GIN (data jsonb_path_ops);
+   OPT: SELECT * FROM films_json WHERE data @> '{"rating": {"average": 8.7}}';
+
+3. CREATE INDEX idx_films_title_btree ON films_json ((data ->> 'title'));
+   OPT: SELECT * FROM films_json WHERE data ->> 'title' = 'The Matrix';
+
+8.4
+******************************************************************************************************************
+1. Les index GIN sur JSONB sont efficaces pour les recherches avec @>, ? (existence de clé), et les filtres sur des paires clé/valeur multiples.
+
+2. jsonb_path_ops est à préférer si on utilise surtout @> : il est plus rapide et plus compact, mais ne gère pas les opérateurs comme ?.
+
+3. Pour une propriété spécifique, le plus efficace est un index B-tree fonctionnel :
+   CREATE INDEX ... ON table ((data ->> 'clé'));  
+
+
+
+
+
 
 
 
